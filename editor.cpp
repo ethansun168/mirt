@@ -1,12 +1,14 @@
 #include <stdio.h>
-#include <stdarg.h>
+#include <format>
+#include <fcntl.h>
+#include <string.h>
 #include <unistd.h>
 #include <fstream>
 #include "editor.h"
 #include "constants.h"
 #include "utils.h"
 
-Editor::Editor() : cx{0}, cy{0}, rx{0}, rowOffset{0}, colOffset{0}, filename{"[No Name]"}, statusMsgTime{0} {
+Editor::Editor() : cx{0}, cy{0}, rx{0}, rowOffset{0}, colOffset{0}, filename{"[No Name]"}, statusMsgTime{0}, dirty{false} {
     if (getWindowSize(&screenrows, &screencols) == -1)
         die("getWindowSize");
     screenrows -= 2;
@@ -95,6 +97,24 @@ int Editor::rowCxToRx(const std::string& row, int cx) {
     return rx;
 }
 
+void Editor::insertNewline() {
+    if (cx == 0) {
+        rows.insert(rows.begin() + cy, "");
+        renders.insert(renders.begin() + cy, "");
+    }
+    else {
+        // Split line at cursor
+        std::string lhs = rows[cy].substr(0, cx);
+        std::string rhs = rows[cy].substr(cx);
+        rows[cy] = lhs;
+        rows.insert(rows.begin() + cy + 1, rhs);
+        renders[cy] = parseLine(rows[cy]);
+        renders.insert(renders.begin() + cy + 1, parseLine(rows[cy + 1]));
+    }
+    ++cy;
+    cx = 0;
+}
+
 void Editor::insertChar(int c) {
     if (cy == rows.size()) {
         appendRow("");
@@ -102,6 +122,34 @@ void Editor::insertChar(int c) {
     rows[cy].insert(rows[cy].begin() + cx, c);
     renders[cy] = parseLine(rows[cy]);
     cx++;
+    dirty = true;
+}
+
+void Editor::deleteChar() {
+    if (cy == rows.size()) {
+        return;
+    }
+    if (cx == 0 && cy == 0) {
+        return;
+    }
+
+    if (cx > 0) {
+        rows[cy].erase(rows[cy].begin() + cx - 1);
+        renders[cy] = parseLine(rows[cy]);
+        --cx;
+    }
+    else {
+        // Concatenate with previous row
+        cx = rows[cy - 1].length();
+        std::string prev = rows[cy - 1];
+        rows[cy - 1] += rows[cy];
+        renders[cy - 1] = parseLine(rows[cy - 1]);
+        rows.erase(rows.begin() + cy);
+        renders.erase(renders.begin() + cy);        
+        --cy;
+    }
+
+    dirty = true;
 }
 
 void Editor::scroll() {
@@ -161,10 +209,12 @@ void Editor::drawRows(std::string& str) {
 
 void Editor::drawStatusBar(std::string& str) {
     str += "\x1b[7m";
-    std::string status = "";
-    status += filename.substr(0, 20) + " - " + std::to_string(rows.size()) + " lines";
-
-    std::string rstatus = std::to_string(cy + 1) + "/" + std::to_string(rows.size());
+    std::string status = std::format("{:.20} - {} lines {}",
+        filename,
+        rows.size(),
+        dirty ? "(modified)" : ""
+    );
+    std::string rstatus = std::format("{}/{}", cy + 1, rows.size());
     while (status.length() < screencols) {
         if (screencols - status.length() == rstatus.length()) {
             status += rstatus;
@@ -202,14 +252,9 @@ void Editor::refreshScreen() {
     write(STDOUT_FILENO, str.c_str(), str.length());
 }
 
-void Editor::setStatusMessage(const char *fmt, ...) {
-  va_list ap;
-  va_start(ap, fmt);
-  char buf[80];
-  vsnprintf(buf, sizeof(buf), fmt, ap);
-  va_end(ap);
-  statusMsg = buf;
-  statusMsgTime = time(NULL);
+void Editor::setStatusMessage(const std::string& msg) {
+    statusMsg = msg;
+    statusMsgTime = time(NULL);
 }
 
 void Editor::moveCursor(int key) {
@@ -218,6 +263,9 @@ void Editor::moveCursor(int key) {
         case 'h': {
             if (cx != 0) {
                 cx--;
+            } else if (cy > 0) {
+                cy--;
+                cx = rows[cy].length();
             }
             break;
         }
@@ -225,6 +273,9 @@ void Editor::moveCursor(int key) {
         case 'l': {
             if (cy < rows.size() && cx < rows[cy].length()) {
                 cx++;
+            } else if (cy < rows.size() && cx == rows[cy].length()) {
+                cy++;
+                cx = 0;
             }
             break;
         }
@@ -251,16 +302,42 @@ void Editor::moveCursor(int key) {
 }
 
 void Editor::save() {
+    if (filename == "[No Name]") {
+        return;
+    }
+    std::string data = "";
+    for (const std::string& row : rows) {
+        data += row + "\n";
+    }
+    int fd = open(filename.c_str(), O_RDWR | O_CREAT, 0644);
+    if (fd == -1) {
+        setStatusMessage(std::format("Can't save! I/O error: {}", strerror(errno)));
+        return;
+    }
 
+    if (ftruncate(fd, data.length()) != -1) {
+        setStatusMessage(std::format("{} bytes written to disk", data.length()));
+        dirty = false;
+        write(fd, data.c_str(), data.length());
+    }
+    close(fd);
 }
 
 void Editor::processKeyPress() {
+    static int quitTimes = QUIT_TIMES;
+
     int c = readKey();
     switch (c) {
         case '\r':
-            /* TODO */
+            insertNewline();
             break;
         case CTRL_KEY('q'):
+            if (dirty && quitTimes > 0) {
+                setStatusMessage(std::format("WARNING!!! File has unsaved changes. "
+                "Press Ctrl-Q {} more times to quit.", quitTimes));
+                --quitTimes;
+                return;
+            }
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
@@ -281,7 +358,8 @@ void Editor::processKeyPress() {
         case BACKSPACE:
         case CTRL_KEY('h'):
         case DEL_KEY:
-            /* TODO */
+            if (c == DEL_KEY) moveCursor(ARROW_RIGHT);
+            deleteChar();
             break;
         case PAGE_UP:
         case PAGE_DOWN: {
@@ -315,4 +393,5 @@ void Editor::processKeyPress() {
             insertChar(c);
             break;
     }
+    quitTimes = QUIT_TIMES;
 }

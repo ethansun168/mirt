@@ -3,7 +3,6 @@
 #include <string>
 #include <termios.h>
 
-
 class Editor {
 private:
     int cx, cy;
@@ -17,6 +16,7 @@ private:
     std::string filename;
     std::string statusMsg;
     time_t statusMsgTime;
+    bool dirty;
 
     enum EditorKey {
         BACKSPACE = 127,
@@ -34,7 +34,9 @@ private:
     int readKey();
     void appendRow(const std::string& line);
     int rowCxToRx(const std::string& row, int cx);
-    void insertChar(int c);
+    void insertChar(int c); // Insert character at cy, cx
+    void deleteChar(); // Delete character at cy, cx
+    void insertNewline(); // Insert newline at cy
     void scroll();
     void drawRows(std::string& str);
     void drawStatusBar(std::string& str);
@@ -47,5 +49,5 @@ public:
     void openFile(const std::string& filename);
     void refreshScreen();
     void processKeyPress();
-    void setStatusMessage(const char *fmt, ...);
+    void setStatusMessage(const std::string& msg);
 };

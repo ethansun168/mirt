@@ -7,7 +7,8 @@ int main(int argc, char** argv) {
     if (argc >= 2) {
         e.openFile(argv[1]);
     }
-    e.setStatusMessage("HELP: Ctrl-Q = quit");
+    e.setStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit");
+
     while (1) {
         e.refreshScreen();
         e.processKeyPress();
