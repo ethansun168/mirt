@@ -31,6 +31,7 @@ struct editorConfig {
 struct editorConfig E;
 
 enum EditorKey {
+    BACKSPACE = 127,
     ARROW_LEFT = 1000,
     ARROW_RIGHT,
     ARROW_UP,
@@ -180,6 +181,11 @@ std::string parseLine(const std::string& line) {
     return ret;
 }
 
+void editorAppendRow(const std::string& line) {
+    E.rows.push_back(line);
+    E.renders.push_back(parseLine(line));
+}
+
 void editorOpen(const std::string& filename) {
     E.filename = filename;
     std::ifstream file(filename);
@@ -188,8 +194,7 @@ void editorOpen(const std::string& filename) {
     }
     std::string line;
     while (getline(file, line)) {
-        E.rows.push_back(line);
-        E.renders.push_back(parseLine(line));
+        editorAppendRow(line);
     }
     file.close();
 }
@@ -217,6 +222,16 @@ int editorRowCxToRx(const std::string& row, int cx) {
         rx++;
     }
     return rx;
+}
+
+
+void editorInsertChar(int c) {
+    if (E.cy == E.rows.size()) {
+        editorAppendRow("");
+    }
+    E.rows[E.cy].insert(E.rows[E.cy].begin() + E.cx, c);
+    E.renders[E.cy] = parseLine(E.rows[E.cy]);
+    E.cx++;
 }
 
 void editorScroll() {
@@ -352,7 +367,7 @@ void editorMoveCursor(int key) {
         }
         case ARROW_DOWN:
         case 'j': {
-            if (E.cy < E.rows.size() - 1) {
+            if (E.cy < E.rows.size()) {
                 E.cy++;
             }
             break;
@@ -368,11 +383,14 @@ void editorMoveCursor(int key) {
 void editorProcessKeypress() {
     int c = editorReadKey();
     switch (c) {
+        case '\r':
+            /* TODO */
+            break;
         case CTRL_KEY('q'):
-        write(STDOUT_FILENO, "\x1b[2J", 4);
-        write(STDOUT_FILENO, "\x1b[H", 3);
-        exit(0);
-        break;
+            write(STDOUT_FILENO, "\x1b[2J", 4);
+            write(STDOUT_FILENO, "\x1b[H", 3);
+            exit(0);
+            break;
 
         case HOME_KEY:
             E.cx = 0;
@@ -380,7 +398,12 @@ void editorProcessKeypress() {
         case END_KEY:
             if (E.cy < E.rows.size())
                 E.cx = E.rows[E.cy].length();
+            break;
 
+        case BACKSPACE:
+        case CTRL_KEY('h'):
+        case DEL_KEY:
+            /* TODO */
             break;
         case PAGE_UP:
         case PAGE_DOWN: {
@@ -393,18 +416,26 @@ void editorProcessKeypress() {
             int times = E.screenrows;
             while (times--)
             editorMoveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+            break;
         }
-        break;
-        case 'h':
-        case 'j':
-        case 'k':
-        case 'l':
+        // case 'h':
+        // case 'j':
+        // case 'k':
+        // case 'l':
         case ARROW_LEFT:
         case ARROW_RIGHT:
         case ARROW_UP:
         case ARROW_DOWN:
-        editorMoveCursor(c);
+            editorMoveCursor(c);
         break;
+
+        case CTRL_KEY('l'):
+            case '\x1b':
+            break;
+
+        default:
+            editorInsertChar(c);
+            break;
     }
 }
 
