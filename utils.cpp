@@ -9,8 +9,12 @@
 
 struct termios orig_termios;
 void die(const char *s) {
+    // Clear screen
     write(STDOUT_FILENO, "\x1b[2J", 4);
+    // Move cursor to top left
     write(STDOUT_FILENO, "\x1b[H", 3);
+    // Restore cursor
+    write(STDOUT_FILENO, "\x1b[0 q", 6);
     perror(s);
     exit(1);
 }
@@ -19,6 +23,15 @@ void disableRawMode() {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios) == -1) {
         die("tcsetattr");
     }
+    thinCursor();
+}
+
+void thinCursor() {
+    write(STDOUT_FILENO, "\x1b[0 q", 6);
+}
+
+void thickCursor() {
+    write(STDOUT_FILENO, "\x1b[2 q", 6);
 }
 
 void enableRawMode() {
@@ -35,6 +48,7 @@ void enableRawMode() {
     raw.c_cc[VTIME] = 1;
 
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
+    thickCursor();
 }
 
 int getCursorPosition(int *rows, int *cols) {

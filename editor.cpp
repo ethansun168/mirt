@@ -8,7 +8,7 @@
 #include "constants.h"
 #include "utils.h"
 
-Editor::Editor() : cx{0}, cy{0}, rx{0}, rowOffset{0}, colOffset{0}, filename{"[No Name]"}, statusMsgTime{0}, dirty{false} {
+Editor::Editor() : cx{0}, cy{0}, rx{0}, rowOffset{0}, colOffset{0}, filename{""}, statusMsgTime{0}, dirty{false}, mode{Mode::NORMAL} {
     if (getWindowSize(&screenrows, &screencols) == -1)
         die("getWindowSize");
     screenrows -= 2;
@@ -168,7 +168,7 @@ void Editor::scroll() {
     colOffset = rx;
   }
   if (rx >= colOffset + screencols) {
-    colOffset = rx - screencols + 1;
+    colOffset = rx - screencols + 2;
   }
 }
 
@@ -210,11 +210,11 @@ void Editor::drawRows(std::string& str) {
 void Editor::drawStatusBar(std::string& str) {
     str += "\x1b[7m";
     std::string status = std::format("{:.20} - {} lines {}",
-        filename,
+        filename.empty() ? "[No Name]" : filename,
         rows.size(),
         dirty ? "(modified)" : ""
     );
-    std::string rstatus = std::format("{}/{}", cy + 1, rows.size());
+    std::string rstatus = std::format("{}, {}", cy + 1, cx + 1);
     while (status.length() < screencols) {
         if (screencols - status.length() == rstatus.length()) {
             status += rstatus;
@@ -257,13 +257,13 @@ void Editor::setStatusMessage(const std::string& msg) {
     statusMsgTime = time(NULL);
 }
 
-void Editor::moveCursor(int key) {
+void Editor::moveCursor(int key, Mode mode) {
     switch (key) {
         case ARROW_LEFT:
         case 'h': {
             if (cx != 0) {
                 cx--;
-            } else if (cy > 0) {
+            } else if (cy > 0 && mode == Mode::INSERT) {
                 cy--;
                 cx = rows[cy].length();
             }
@@ -271,11 +271,21 @@ void Editor::moveCursor(int key) {
         }
         case ARROW_RIGHT:
         case 'l': {
-            if (cy < rows.size() && cx < rows[cy].length()) {
-                cx++;
-            } else if (cy < rows.size() && cx == rows[cy].length()) {
-                cy++;
-                cx = 0;
+            switch (mode) {
+                case Mode::NORMAL: {
+                    if (cy < rows.size() && cx < rows[cy].length() - 1) {
+                        cx++;
+                    }
+                    break;
+                }
+                case Mode::INSERT:
+                    if (cy < rows.size() && cx < rows[cy].length()) {
+                        cx++;
+                    } else if (cy < rows.size() && cx == rows[cy].length()) {
+                        cy++;
+                        cx = 0;
+                    }
+                    break;
             }
             break;
         }
@@ -301,9 +311,72 @@ void Editor::moveCursor(int key) {
     }
 }
 
+std::string Editor::prompt(const std::string& prompt) {
+    std::string input = "";
+    int rows, cols;
+    size_t cursorPos = 0;
+    getWindowSize(&rows, &cols);
+    while (true) {
+        refreshScreen();
+
+        // Move to bottom line and clear it
+        std::string statusMessage = std::format("\x1b[{};1H\x1b[K", rows);
+
+        // Print prompt and current input
+        std::string promptLine = std::vformat(prompt, std::make_format_args(input));
+        statusMessage += promptLine;
+
+        // Move cursor to correct position
+        statusMessage += std::format("\x1b[{};{}H", rows, promptLine.size() - input.size() + cursorPos + 1);
+
+        // Set cursor to line (block shape)
+        statusMessage += "\x1b[0 q";
+
+        write(STDOUT_FILENO, statusMessage.c_str(), statusMessage.size());
+
+        int c = readKey();
+        if (c == CTRL_KEY('h') || c == BACKSPACE) {
+            if (cursorPos > 0) {
+                input.erase(cursorPos - 1, 1);
+                cursorPos--;
+            }
+        }
+        else if (c == DEL_KEY) {
+            if (cursorPos < input.size()) {
+                input.erase(cursorPos, 1);
+            }
+        }
+        else if (c == '\x1b') {
+            setStatusMessage("");
+            thickCursor();
+            return "";
+        }
+        else if (c == '\r') {
+            if (input.length() > 0) {
+                thickCursor();
+                return input;
+            } 
+        }
+        else if (c == ARROW_LEFT) {
+            if (cursorPos > 0) cursorPos--;
+        }
+        else if (c == ARROW_RIGHT) {
+            if (cursorPos < input.length()) cursorPos++;
+        }
+        else if (!iscntrl(c) && c < 128) {
+            input.insert(cursorPos, 1, (char)c);
+            ++cursorPos;
+        }
+    }
+}
+
 void Editor::save() {
-    if (filename == "[No Name]") {
-        return;
+    if (filename.empty()) {
+        filename = prompt("Save as: {}");
+        if (filename.empty()) {
+            setStatusMessage("Save aborted");
+            return;
+        }
     }
     std::string data = "";
     for (const std::string& row : rows) {
@@ -323,44 +396,103 @@ void Editor::save() {
     close(fd);
 }
 
-void Editor::processKeyPress() {
-    static int quitTimes = QUIT_TIMES;
+void Editor::processNormalKey(int c) {
+    switch(c) {
+        case ':': {
+            std::string command = prompt(":{}");
+            if (command.empty()) {
+                setStatusMessage("Aborted");
+                return;
+            }
+            setStatusMessage("You entered: " + command);
+            if (command == "w") {
+                save();
+            }
+            else if (command == "wq") {
+                save();
+                write(STDOUT_FILENO, "\x1b[2J", 4);
+                write(STDOUT_FILENO, "\x1b[H", 3);
+                exit(0);
+            }
+            else if (command == "q!") {
+                write(STDOUT_FILENO, "\x1b[2J", 4);
+                write(STDOUT_FILENO, "\x1b[H", 3);
+                exit(0);
+            }
+            else if (command == "q") {
+                if (dirty) {
+                    setStatusMessage("Unsaved changes. (add ! to override)");
+                    return;
+                }
+                else {
+                    write(STDOUT_FILENO, "\x1b[2J", 4);
+                    write(STDOUT_FILENO, "\x1b[H", 3);
+                    exit(0);
+                }
+            }
+            break;
+        }
+        case 'h':
+        case 'j':
+        case 'k':
+        case 'l':
+            moveCursor(c, mode);
+            break;
+        
+        case 'i':
+            mode = Mode::INSERT;
+            setStatusMessage("-- INSERT --");
+            thinCursor();
+            break;
+            
+        case '0':
+            cx = 0;
+            break;
+        case '$':
+            if (cy < rows.size())
+                cx = rows[cy].length() - 1;
+            break;
+    }
+}
 
-    int c = readKey();
+void Editor::processInsertKey(int c) {
     switch (c) {
         case '\r':
             insertNewline();
             break;
-        case CTRL_KEY('q'):
-            if (dirty && quitTimes > 0) {
-                setStatusMessage(std::format("WARNING!!! File has unsaved changes. "
-                "Press Ctrl-Q {} more times to quit.", quitTimes));
-                --quitTimes;
-                return;
-            }
-            write(STDOUT_FILENO, "\x1b[2J", 4);
-            write(STDOUT_FILENO, "\x1b[H", 3);
-            exit(0);
-            break;
-        
+
         case CTRL_KEY('s'):
             save();
-            break;
-
-        case HOME_KEY:
-            cx = 0;
-            break;
-        case END_KEY:
-            if (cy < rows.size())
-                cx = rows[cy].length();
             break;
 
         case BACKSPACE:
         case CTRL_KEY('h'):
         case DEL_KEY:
-            if (c == DEL_KEY) moveCursor(ARROW_RIGHT);
+            if (c == DEL_KEY) moveCursor(ARROW_RIGHT, mode);
             deleteChar();
             break;
+
+        case CTRL_KEY('l'):
+            break;
+        case '\x1b':
+            mode = Mode::NORMAL;
+            setStatusMessage("-- NORMAL --");
+            thickCursor();
+            if (cx > 0) {
+                --cx;
+            }
+            break;
+
+        default:
+            insertChar(c);
+            break;
+    }
+}
+
+void Editor::processKeyPress() {
+    int c = readKey();
+    // Common between both modes
+    switch (c) {
         case PAGE_UP:
         case PAGE_DOWN: {
             if (c == PAGE_UP) {
@@ -371,27 +503,31 @@ void Editor::processKeyPress() {
             }
             int times = screenrows;
             while (times--)
-            moveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
-            break;
+            moveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN, mode);
+            return;
         }
-        // case 'h':
-        // case 'j':
-        // case 'k':
-        // case 'l':
+
         case ARROW_LEFT:
         case ARROW_RIGHT:
         case ARROW_UP:
         case ARROW_DOWN:
-            moveCursor(c);
-        break;
+            moveCursor(c, mode);
+            return;
 
-        case CTRL_KEY('l'):
-            case '\x1b':
+        case HOME_KEY:
+            cx = 0;
             break;
-
-        default:
-            insertChar(c);
+        case END_KEY:
+            if (cy < rows.size())
+                cx = rows[cy].length() - 1;
             break;
     }
-    quitTimes = QUIT_TIMES;
+    switch (mode) {
+        case Mode::NORMAL:
+            processNormalKey(c);
+            break;
+        case Mode::INSERT:
+            processInsertKey(c);
+            break;
+    }
 }
