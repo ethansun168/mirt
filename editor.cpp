@@ -528,6 +528,55 @@ void Editor::setCommandHandler(const std::string& subCommand) {
     }
 }
 
+// Returns new cursor position after moving `w` motion
+void Editor::wordMotion(int n) {
+    auto isKeywordChar = [](char c) {
+        return std::isalnum((unsigned char)c) || c == '_';
+    };
+
+    for (int i = 0; i < n; ++i) {
+
+        // If past end of file
+        if (cy >= rows.size())
+            return;
+
+        std::string &row = rows[cy];
+
+        // --- 1. If we're in the middle of a word, skip to its end ---
+        if (!row.empty() && cx < (int)row.size() && !std::isspace((unsigned char)row[cx])) {
+            bool currIsKeyword = isKeywordChar(row[cx]);
+            while (cx < (int)row.size() && isKeywordChar(row[cx]) == currIsKeyword) {
+                cx++;
+            }
+        }
+
+        // --- 2. If we're at or past end of line, go to next line ---
+        if (cx >= (int)row.size()) {
+            cy++;
+            cx = 0;
+
+            // **Vim behavior**: Stop if the new line is empty
+            if (cy < (int)rows.size() && rows[cy].empty())
+                continue;
+
+        }
+
+        // --- 3. Skip whitespace to get to next word ---
+        while (cy < (int)rows.size() && std::isspace((unsigned char)rows[cy][cx])) {
+            cx++;
+            if (cx >= (int)rows[cy].size()) {
+                cy++;
+                cx = 0;
+                // Stop if it's an empty line
+                if (cy < (int)rows.size() && rows[cy].empty())
+                    continue;
+            }
+        }
+    }
+
+}
+
+
 void Editor::processNormalKey(int c) {
     switch(c) {
         case ':': {
@@ -613,6 +662,10 @@ void Editor::processNormalKey(int c) {
             cx = first;
             lastCx = cx;
             break;
+        }
+        case 'w': {
+            wordMotion(1);
+            lastCx = cx;
         }
     }
 }

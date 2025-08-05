@@ -74,6 +74,8 @@ private:
 
     void setCommandHandler(const std::string& subCommand);
 
+    void wordMotion(int n);
+
 public:
     Editor();
     void openFile(const std::string& filename);
