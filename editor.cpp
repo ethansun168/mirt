@@ -512,6 +512,20 @@ void Editor::setCommandHandler(const std::string& subCommand) {
     else if (subCommand == "norelativenumber" || subCommand == "nornu") {
         options["relativenumber"] = false;
     }
+    else if (subCommand.starts_with("tabstop=")) {
+        int tabStop = std::stoi(subCommand.substr(8));
+        if (tabStop > 0) {
+            TAB_STOP = tabStop;
+            // Rerender the render rows
+            for (int i = 0; i < renders.size(); ++i) {
+                renders[i] = parseLine(rows[i]);
+            }
+            refreshScreen();
+        }
+    }
+    else {
+        setStatusMessage(std::format("Unknown command: {}", subCommand));
+    }
 }
 
 void Editor::processNormalKey(int c) {
