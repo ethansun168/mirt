@@ -4,6 +4,7 @@
 int main(int argc, char** argv) {
     enableRawMode();
     Editor e;
+    e.config();
     if (argc >= 2) {
         e.openFile(argv[1]);
     }

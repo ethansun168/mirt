@@ -499,6 +499,21 @@ bool Editor::save() {
     return true;
 }
 
+void Editor::setCommandHandler(const std::string& subCommand) {
+    if (subCommand == "number" || subCommand == "nu") {
+        options["number"] = true;
+    }
+    else if (subCommand == "nonumber" || subCommand == "nonu") {
+        options["number"] = false;
+    }
+    if (subCommand == "relativenumber" || subCommand == "rnu") {
+        options["relativenumber"] = true;
+    }
+    else if (subCommand == "norelativenumber" || subCommand == "nornu") {
+        options["relativenumber"] = false;
+    }
+}
+
 void Editor::processNormalKey(int c) {
     switch(c) {
         case ':': {
@@ -536,19 +551,7 @@ void Editor::processNormalKey(int c) {
             }
             else if (command.starts_with("set ")) {
                 std::string subCommand = command.substr(4);
-                if (subCommand == "number" || subCommand == "nu") {
-                    options["number"] = true;
-                }
-                else if (subCommand == "nonumber" || subCommand == "nonu") {
-                    options["number"] = false;
-                }
-                if (subCommand == "relativenumber" || subCommand == "rnu") {
-                    options["relativenumber"] = true;
-                }
-                else if (subCommand == "norelativenumber" || subCommand == "nornu") {
-                    options["relativenumber"] = false;
-                }
-                
+                setCommandHandler(subCommand); 
             }
             break;
         }
@@ -690,4 +693,21 @@ void Editor::setNormal() {
     thickCursor();
     mode = Mode::NORMAL;
     setStatusMessage("-- NORMAL --");
+}
+
+void Editor::config() {
+    std::string filename = ".mirtrc";
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        return;
+    }
+    std::string command;
+    while (getline(file, command)) {
+        if (command.starts_with("set ")) {
+            std::string subCommand = command.substr(4);
+            setCommandHandler(subCommand);
+        }
+    }
+
+    file.close();
 }

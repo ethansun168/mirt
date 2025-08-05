@@ -72,6 +72,8 @@ private:
     void setInsert();
     void setNormal();
 
+    void setCommandHandler(const std::string& subCommand);
+
 public:
     Editor();
     void openFile(const std::string& filename);
@@ -79,4 +81,7 @@ public:
     void processKeyPress();
     void setStatusMessage(const std::string& msg);
     void appendIfBufferEmpty();
+
+    // Open .mirtrc in same dir as mirt executable
+    void config();
 };
