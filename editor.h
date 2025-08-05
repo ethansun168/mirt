@@ -41,6 +41,11 @@ private:
         DEL_KEY
     };
 
+    enum class WordMotionTarget {
+        START,
+        END
+    };
+
     int readKey();
     void appendRow(const std::string& line);
     int rowCxToRx(const std::string& row, int cx);
@@ -74,7 +79,8 @@ private:
 
     void setCommandHandler(const std::string& subCommand);
 
-    void wordMotion(int n);
+    // Move cursor in direction `dir` by `n` words
+    void wordMotion(int n, bool dir, WordMotionTarget target);
 
 public:
     Editor();

@@ -382,7 +382,6 @@ void Editor::moveCursor(int key, Mode mode) {
                     cx = std::min(lastCx, (int)rows[cy].size());
                     break;
             }
-
             break;
         }
     }
@@ -529,51 +528,73 @@ void Editor::setCommandHandler(const std::string& subCommand) {
 }
 
 // Returns new cursor position after moving `w` motion
-void Editor::wordMotion(int n) {
+void Editor::wordMotion(int n, bool dir, WordMotionTarget target) {
+    // True is forward, false is backward
     auto isKeywordChar = [](char c) {
         return std::isalnum((unsigned char)c) || c == '_';
     };
 
     for (int i = 0; i < n; ++i) {
+        if (dir) {
+            // Forward
 
-        // If past end of file
-        if (cy >= rows.size())
-            return;
+            // If past end of file
+            if (cy >= rows.size())
+                return;
 
-        std::string &row = rows[cy];
-
-        // --- 1. If we're in the middle of a word, skip to its end ---
-        if (!row.empty() && cx < (int)row.size() && !std::isspace((unsigned char)row[cx])) {
-            bool currIsKeyword = isKeywordChar(row[cx]);
-            while (cx < (int)row.size() && isKeywordChar(row[cx]) == currIsKeyword) {
-                cx++;
+            int oldcx = cx;
+            // --- 1. If we're in the middle of a word, skip to its end ---
+            if (!rows[cy].empty() && cx < (int)rows[cy].size() && !std::isspace((unsigned char)rows[cy][cx])) {
+                bool currIsKeyword = isKeywordChar(rows[cy][cx]);
+                while (cx < (int)rows[cy].size() && isKeywordChar(rows[cy][cx]) == currIsKeyword) {
+                    cx++;
+                }
+                if (target == WordMotionTarget::END) {
+                    --cx;
+                    if (oldcx == cx) {
+                        ++cx;
+                    }
+                }
             }
-        }
 
-        // --- 2. If we're at or past end of line, go to next line ---
-        if (cx >= (int)row.size()) {
-            cy++;
-            cx = 0;
-
-            // **Vim behavior**: Stop if the new line is empty
-            if (cy < (int)rows.size() && rows[cy].empty())
-                continue;
-
-        }
-
-        // --- 3. Skip whitespace to get to next word ---
-        while (cy < (int)rows.size() && std::isspace((unsigned char)rows[cy][cx])) {
-            cx++;
+            // --- 2. If we're at or past end of line, go to next line ---
             if (cx >= (int)rows[cy].size()) {
                 cy++;
                 cx = 0;
-                // Stop if it's an empty line
-                if (cy < (int)rows.size() && rows[cy].empty())
+
+                // **Vim behavior**: Stop if the new line is empty
+                if (target == WordMotionTarget::START && cy < (int)rows.size() && rows[cy].empty())
                     continue;
             }
+
+            while (target == WordMotionTarget::END && cy < (int)rows.size() && rows[cy].empty()) {
+                ++cy;
+            }
+
+            // --- 3. Skip whitespace to get to next word ---
+            while (cy < (int)rows.size() && std::isspace((unsigned char)rows[cy][cx])) {
+                cx++;
+                if (cx >= (int)rows[cy].size()) {
+                    cy++;
+                    cx = 0;
+                    // Stop if it's an empty line
+                    if (target == WordMotionTarget::START && cy < (int)rows.size() && rows[cy].empty())
+                        continue;
+                }
+            }
+            if (target == WordMotionTarget::END) {
+                bool currIsKeyword = isKeywordChar(rows[cy][cx]);
+                while (cx < (int)rows[cy].size() && isKeywordChar(rows[cy][cx]) == currIsKeyword) {
+                    cx++;
+                }
+                --cx;
+                continue;
+            }
+        }
+        else {
+            // Backward
         }
     }
-
 }
 
 
@@ -625,9 +646,12 @@ void Editor::processNormalKey(int c) {
             moveCursor(c, mode);
             break;
         
-        case 'a':
-            ++cx;
-            lastCx = cx;
+        case 'a': {
+            if (!rows[cy].empty()) {
+                ++cx;
+                lastCx = cx;
+            }
+        }
         case 'i':
             setInsert();
             break;
@@ -657,6 +681,10 @@ void Editor::processNormalKey(int c) {
             }
             break;
         }
+        case 'G': {
+            cy = rows.size() - 1;
+            cx = 0;
+        }
         case '_': {
             size_t first = firstNonWhitespace(rows[cy]);
             cx = first;
@@ -664,8 +692,19 @@ void Editor::processNormalKey(int c) {
             break;
         }
         case 'w': {
-            wordMotion(1);
+            wordMotion(1, true, WordMotionTarget::START);
             lastCx = cx;
+            break;
+        }
+        case 'e': {
+            wordMotion(1, true, WordMotionTarget::END);
+            lastCx = cx;
+            break;
+        }
+        case 'b': {
+            wordMotion(1, false, WordMotionTarget::START);
+            lastCx = cx;
+            break;
         }
     }
 }
