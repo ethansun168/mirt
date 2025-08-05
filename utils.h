@@ -11,3 +11,5 @@ void thickCursor();
 
 // Turn tabs into spaces
 std::string parseLine(const std::string& line);
+
+size_t firstNonWhitespace(const std::string& line);

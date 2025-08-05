@@ -103,3 +103,12 @@ std::string parseLine(const std::string& line) {
     }
     return ret;
 }
+
+size_t firstNonWhitespace(const std::string& line) {
+    for (size_t i = 0; i < line.length(); ++i) {
+        if (!isspace(static_cast<unsigned char>(line[i]))) {
+            return i;
+        }
+    }
+    return 0;
+}

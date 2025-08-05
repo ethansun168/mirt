@@ -183,11 +183,14 @@ void Editor::scroll() {
   if (cy >= rowOffset + screenrows) {
     rowOffset = cy - screenrows + 1;
   }
+
+  // Account for linenumberwidth
+  int textCols = screencols - lineNumberWidth;
   if (rx < colOffset) {
     colOffset = rx;
   }
-  if (rx >= colOffset + screencols) {
-    colOffset = rx - screencols + 2;
+  if (rx > colOffset + textCols - 1) {
+    colOffset = rx - textCols + 1;
   }
 }
 
@@ -201,8 +204,7 @@ void Editor::drawRows(std::string& str) {
 
         if (filerow >= rows.size()) {
             str += std::string(lineNumberWidth, ' '); 
-
-            if (!dirty && rows.size() == 1 && rows[0].empty() && y == screenrows / 3) {
+            if (!dirty && filename.empty() && rows.size() == 1 && rows[0].empty() && y == screenrows / 3) {
                 std::string welcome = "Welcome to mirt -- version 0.0.1";
                 int padding = (screencols - welcome.length()) / 2;
                 if (padding) {
@@ -252,9 +254,10 @@ void Editor::drawRows(std::string& str) {
             }
 
 
+            int textCols = screencols - lineNumberWidth;
             int len = renders[filerow].length() - colOffset;
             len = std::max(0, len);
-            len = std::min(len, screencols - lineNumberWidth);
+            len = std::min(len, textCols);
             if (len != 0) {
                 str += renders[filerow].substr(colOffset, len);
             }
@@ -334,7 +337,7 @@ void Editor::moveCursor(int key, Mode mode) {
         case 'l': {
             switch (mode) {
                 case Mode::NORMAL: {
-                    if (cy < rows.size() && cx < rows[cy].length() - 1) {
+                    if (cy < rows.size() && cx < (int) rows[cy].length() - 1) {
                         cx++;
                     }
                     break;
@@ -388,6 +391,15 @@ void Editor::moveCursor(int key, Mode mode) {
     if (cx > rowLen) {
         cx = rowLen;
     }
+
+    // Normal mode end of line
+    if (mode == Mode::NORMAL && cx == rows[cy].length() - 1) {
+        cx++;
+        refreshScreen();
+        cx--;
+        refreshScreen();
+    }
+
     assert(cx >= 0);
     assert(cy >= 0);
 }
@@ -397,22 +409,31 @@ std::string Editor::prompt(const std::string& prompt) {
     int rows, cols;
     size_t cursorPos = 0;
     getWindowSize(&rows, &cols);
+
+    size_t placeholderPos = prompt.find("{}");
+    std::string before = prompt.substr(0, placeholderPos);
+    std::string after = placeholderPos != std::string::npos
+                        ? prompt.substr(placeholderPos + 2)
+                        : "";
+
     while (true) {
         refreshScreen();
 
         // Move to bottom line and clear it
         std::string statusMessage = std::format("\x1b[{};1H\x1b[K", rows);
 
-        // Print prompt and current input
-        std::string promptLine = std::vformat(prompt, std::make_format_args(input));
-        statusMessage += promptLine;
+        // Print prompt
+        statusMessage += before;
+        statusMessage += input;
+        statusMessage += after;
 
-        // Move cursor to correct position
-        statusMessage += std::format("\x1b[{};{}H", rows, promptLine.size() - input.size() + cursorPos + 1);
+        // Move cursor: start of prompt + position inside input
+        statusMessage += std::format("\x1b[{};{}H", rows, before.size() + cursorPos + 1);
 
-        // Set cursor to line (block shape)
+        // Set cursor shape
         statusMessage += "\x1b[0 q";
 
+        // Write it all at once
         write(STDOUT_FILENO, statusMessage.c_str(), statusMessage.size());
 
         int c = readKey();
@@ -453,7 +474,7 @@ std::string Editor::prompt(const std::string& prompt) {
 
 bool Editor::save() {
     if (filename.empty()) {
-        filename = prompt("Save as: {}");
+        filename = prompt("Save as: {} (ESC to cancel)");
         if (filename.empty()) {
             setStatusMessage("Save aborted");
             return false;
@@ -551,18 +572,31 @@ void Editor::processNormalKey(int c) {
             setInsert();
             break;
         }
-
             
         case '0':
             cx = 0;
             lastCx = 0;
             break;
         case END_KEY:
-        case '$':
-            if (cy < rows.size())
+        case '$': {
+            if (cy < rows.size()) {
                 cx = std::max(0, (int) rows[cy].length() - 1);
                 lastCx = cx;
+                if (cx == rows[cy].length() - 1) {
+                    cx++;
+                    refreshScreen();
+                    cx--;
+                    refreshScreen();
+                }
+            }
             break;
+        }
+        case '_': {
+            size_t first = firstNonWhitespace(rows[cy]);
+            cx = first;
+            lastCx = cx;
+            break;
+        }
     }
 }
 

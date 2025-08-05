@@ -2,7 +2,7 @@
 ## Quickstart
 ```
 make
-./main [filename]
+./mirt [filename]
 ```
 
 # Reference
