@@ -2,7 +2,7 @@ CXX = g++
 CXXFLAGS = -std=c++23 -g
 SRC = $(wildcard *.cpp)
 OBJ = $(SRC:.cpp=.o)  # Convert .cpp files to .o object files
-TARGET = main
+TARGET = mirt
 
 # Default rule
 all: $(TARGET)

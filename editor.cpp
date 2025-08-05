@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <cassert>
 #include <format>
 #include <fcntl.h>
 #include <string.h>
@@ -18,12 +19,14 @@ Editor::Editor() :
     statusMsgTime{0},
     dirty{false},
     mode{Mode::NORMAL},
-    lineNumberWidth{0}
+    lineNumberWidth{0},
+    lastCx{0}
 {
     if (getWindowSize(&screenrows, &screencols) == -1)
         die("getWindowSize");
     screenrows -= 2;
     options["number"] = false;
+    options["relativenumber"] = false;
 }
 
 int Editor::readKey() {
@@ -110,6 +113,7 @@ int Editor::rowCxToRx(const std::string& row, int cx) {
 }
 
 void Editor::insertNewline() {
+    assert(cx >= 0);
     if (cx == 0) {
         rows.insert(rows.begin() + cy, "");
         renders.insert(renders.begin() + cy, "");
@@ -125,6 +129,7 @@ void Editor::insertNewline() {
     }
     ++cy;
     cx = 0;
+    lastCx = cx;
 }
 
 void Editor::insertChar(int c) {
@@ -134,6 +139,8 @@ void Editor::insertChar(int c) {
     rows[cy].insert(rows[cy].begin() + cx, c);
     renders[cy] = parseLine(rows[cy]);
     cx++;
+
+    lastCx = cx - 1;
     dirty = true;
 }
 
@@ -160,7 +167,7 @@ void Editor::deleteChar() {
         renders.erase(renders.begin() + cy);        
         --cy;
     }
-
+    lastCx = std::max(0, cx - 1);
     dirty = true;
 }
 
@@ -185,7 +192,9 @@ void Editor::scroll() {
 }
 
 void Editor::drawRows(std::string& str) {
-    lineNumberWidth = options["number"] ? std::to_string(std::max(1, (int)rows.size())).size() + 1 : 0;
+    lineNumberWidth = (options["number"] || options["relativenumber"])
+        ? std::max(4, (int)std::to_string(std::max(1, (int)rows.size())).size() + 1)
+        : 0;
 
     for (int y = 0; y < screenrows; y++) {
         int filerow = y + rowOffset;
@@ -193,8 +202,8 @@ void Editor::drawRows(std::string& str) {
         if (filerow >= rows.size()) {
             str += std::string(lineNumberWidth, ' '); 
 
-            if (rows.size() == 0 && y == screenrows / 3) {
-                std::string welcome = "Welcome to Gamestrim Editor -- version 0.0.1";
+            if (!dirty && rows.size() == 1 && rows[0].empty() && y == screenrows / 3) {
+                std::string welcome = "Welcome to mirt -- version 0.0.1";
                 int padding = (screencols - welcome.length()) / 2;
                 if (padding) {
                     str += "~";
@@ -210,15 +219,38 @@ void Editor::drawRows(std::string& str) {
             }
         }
         else {
-            if (options["number"]) {
-                std::string lineNumber = std::to_string(filerow + 1);
+            if (options["number"] || options["relativenumber"]) {
+                int relativeNumber = std::abs(filerow - cy);
+                std::string lineNumber;
+                if (options["number"] && options["relativenumber"]) {
+                    if (relativeNumber == 0) {
+                        lineNumber = std::to_string(filerow + 1);
+                    }
+                    else {
+                        lineNumber = std::to_string(relativeNumber);
+                    }
+                }
+                else if (!options["number"] && options["relativenumber"]) {
+                    lineNumber = std::to_string(relativeNumber);
+                }
+                else if (options["number"] && !options["relativenumber"]) {
+                    lineNumber = std::to_string(filerow + 1);
+                }
+
                 // Dim line numbers
                 str += "\x1b[2m";
 
-                str += std::string(lineNumberWidth - lineNumber.size() - 1, ' ') + lineNumber + " ";
+                if (relativeNumber == 0) {
+                    // Unindent current line
+                    str += lineNumber + std::string(lineNumberWidth - lineNumber.size() - 1, ' ') + " ";
+                }
+                else {
+                    str += std::string(lineNumberWidth - lineNumber.size() - 1, ' ') + lineNumber + " ";
+                }
                 // Reset to normal
                 str += "\x1b[22m";
             }
+
 
             int len = renders[filerow].length() - colOffset;
             len = std::max(0, len);
@@ -295,6 +327,7 @@ void Editor::moveCursor(int key, Mode mode) {
                 cy--;
                 cx = rows[cy].length();
             }
+            lastCx = cx;
             break;
         }
         case ARROW_RIGHT:
@@ -309,12 +342,13 @@ void Editor::moveCursor(int key, Mode mode) {
                 case Mode::INSERT:
                     if (cy < rows.size() && cx < rows[cy].length()) {
                         cx++;
-                    } else if (cy < rows.size() && cx == rows[cy].length()) {
+                    } else if (cy < rows.size() - 1 && cx == rows[cy].length()) {
                         cy++;
                         cx = 0;
                     }
                     break;
             }
+            lastCx = cx;
             break;
         }
         case ARROW_UP:
@@ -322,13 +356,30 @@ void Editor::moveCursor(int key, Mode mode) {
             if (cy != 0) {
                 cy--;
             }
+            switch (mode) {
+                case Mode::NORMAL:
+                    cx = std::max(0, std::min(lastCx, (int)rows[cy].size() - 1));
+                    break;
+                case Mode::INSERT:
+                    cx = std::min(lastCx, (int)rows[cy].size());
+                    break;
+            }
             break;
         }
         case ARROW_DOWN:
         case 'j': {
-            if (cy < rows.size()) {
+            if (cy < rows.size() - 1) {
                 cy++;
             }
+            switch (mode) {
+                case Mode::NORMAL:
+                    cx = std::max(0, std::min(lastCx, (int)rows[cy].size() - 1));
+                    break;
+                case Mode::INSERT:
+                    cx = std::min(lastCx, (int)rows[cy].size());
+                    break;
+            }
+
             break;
         }
     }
@@ -337,6 +388,8 @@ void Editor::moveCursor(int key, Mode mode) {
     if (cx > rowLen) {
         cx = rowLen;
     }
+    assert(cx >= 0);
+    assert(cy >= 0);
 }
 
 std::string Editor::prompt(const std::string& prompt) {
@@ -398,12 +451,12 @@ std::string Editor::prompt(const std::string& prompt) {
     }
 }
 
-void Editor::save() {
+bool Editor::save() {
     if (filename.empty()) {
         filename = prompt("Save as: {}");
         if (filename.empty()) {
             setStatusMessage("Save aborted");
-            return;
+            return false;
         }
     }
     std::string data = "";
@@ -413,7 +466,7 @@ void Editor::save() {
     int fd = open(filename.c_str(), O_RDWR | O_CREAT, 0644);
     if (fd == -1) {
         setStatusMessage(std::format("Can't save! I/O error: {}", strerror(errno)));
-        return;
+        return false;
     }
 
     if (ftruncate(fd, data.length()) != -1) {
@@ -422,6 +475,7 @@ void Editor::save() {
         write(fd, data.c_str(), data.length());
     }
     close(fd);
+    return true;
 }
 
 void Editor::processNormalKey(int c) {
@@ -436,7 +490,9 @@ void Editor::processNormalKey(int c) {
                 save();
             }
             else if (command == "wq") {
-                save();
+                if (!save()) {
+                    return;
+                }
                 write(STDOUT_FILENO, "\x1b[2J", 4);
                 write(STDOUT_FILENO, "\x1b[H", 3);
                 exit(0);
@@ -459,13 +515,18 @@ void Editor::processNormalKey(int c) {
             }
             else if (command.starts_with("set ")) {
                 std::string subCommand = command.substr(4);
-                if (subCommand == "number") {
+                if (subCommand == "number" || subCommand == "nu") {
                     options["number"] = true;
                 }
-                else if (subCommand == "nonumber") {
+                else if (subCommand == "nonumber" || subCommand == "nonu") {
                     options["number"] = false;
                 }
-                // setStatusMessage("Set subcommand: " + subCommand);
+                if (subCommand == "relativenumber" || subCommand == "rnu") {
+                    options["relativenumber"] = true;
+                }
+                else if (subCommand == "norelativenumber" || subCommand == "nornu") {
+                    options["relativenumber"] = false;
+                }
                 
             }
             break;
@@ -477,18 +538,30 @@ void Editor::processNormalKey(int c) {
             moveCursor(c, mode);
             break;
         
+        case 'a':
+            ++cx;
+            lastCx = cx;
         case 'i':
-            mode = Mode::INSERT;
-            setStatusMessage("-- INSERT --");
-            thinCursor();
+            setInsert();
             break;
+        case 'o': {
+            processInsertKey(END_KEY);
+            lastCx = 0;
+            insertNewline();
+            setInsert();
+            break;
+        }
+
             
         case '0':
             cx = 0;
+            lastCx = 0;
             break;
+        case END_KEY:
         case '$':
             if (cy < rows.size())
-                cx = rows[cy].length() - 1;
+                cx = std::max(0, (int) rows[cy].length() - 1);
+                lastCx = cx;
             break;
     }
 }
@@ -497,10 +570,6 @@ void Editor::processInsertKey(int c) {
     switch (c) {
         case '\r':
             insertNewline();
-            break;
-
-        case CTRL_KEY('s'):
-            save();
             break;
 
         case BACKSPACE:
@@ -513,12 +582,16 @@ void Editor::processInsertKey(int c) {
         case CTRL_KEY('l'):
             break;
         case '\x1b':
-            mode = Mode::NORMAL;
-            setStatusMessage("-- NORMAL --");
-            thickCursor();
+            setNormal();
             if (cx > 0) {
                 --cx;
             }
+            break;
+
+        case END_KEY:
+            if (cy < rows.size())
+                cx = std::max(0, (int) rows[cy].length());
+                lastCx = cx;
             break;
 
         default:
@@ -554,11 +627,8 @@ void Editor::processKeyPress() {
 
         case HOME_KEY:
             cx = 0;
-            break;
-        case END_KEY:
-            if (cy < rows.size())
-                cx = rows[cy].length() - 1;
-            break;
+            lastCx = 0;
+            return;
     }
     switch (mode) {
         case Mode::NORMAL:
@@ -568,4 +638,22 @@ void Editor::processKeyPress() {
             processInsertKey(c);
             break;
     }
+}
+
+void Editor::appendIfBufferEmpty() {
+    if (rows.empty()) {
+        appendRow("");
+    }
+}
+
+void Editor::setInsert() {
+    thinCursor();
+    mode = Mode::INSERT;
+    setStatusMessage("-- INSERT --");
+}
+
+void Editor::setNormal() {
+    thickCursor();
+    mode = Mode::NORMAL;
+    setStatusMessage("-- NORMAL --");
 }

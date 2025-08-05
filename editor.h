@@ -13,6 +13,7 @@ private:
 
     int cx, cy;
     int rx;
+    int lastCx;
     int screenrows;
     int screencols;
     int rowOffset;
@@ -58,7 +59,9 @@ private:
     void drawStatusBar(std::string& str);
     void drawMessageBar(std::string& str);
     void moveCursor(int key, Mode mode);
-    void save();
+    
+    // Returns if save was successful
+    bool save();
 
     // Prompt the user for input. Returns the user input
     std::string prompt(const std::string& prompt);
@@ -66,10 +69,14 @@ private:
     void processInsertKey(int c);
     void processNormalKey(int c);
 
+    void setInsert();
+    void setNormal();
+
 public:
     Editor();
     void openFile(const std::string& filename);
     void refreshScreen();
     void processKeyPress();
     void setStatusMessage(const std::string& msg);
+    void appendIfBufferEmpty();
 };

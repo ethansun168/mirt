@@ -8,6 +8,7 @@ int main(int argc, char** argv) {
         e.openFile(argv[1]);
     }
     e.setStatusMessage(":q to quit");
+    e.appendIfBufferEmpty();
 
     while (1) {
         e.refreshScreen();
