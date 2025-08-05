@@ -275,7 +275,17 @@ void Editor::drawStatusBar(std::string& str) {
         rows.size(),
         dirty ? "(modified)" : ""
     );
-    std::string rstatus = std::format("{}, {}", cy + 1, cx + 1);
+    std::string rstatusFormat = "";
+    for (const char c : ops) {
+        rstatusFormat += c;
+    }
+    rstatusFormat += " {}, {}";
+    int yCol = cy + 1;
+    int xCol = cx + 1;
+    std::string rstatus = std::vformat(
+        rstatusFormat,
+        std::make_format_args(yCol, xCol)
+    );
     while (status.length() < screencols) {
         if (screencols - status.length() == rstatus.length()) {
             status += rstatus;
@@ -562,26 +572,33 @@ void Editor::wordMotion(int n, bool dir, WordMotionTarget target) {
                 cy++;
                 cx = 0;
 
-                // **Vim behavior**: Stop if the new line is empty
-                if (target == WordMotionTarget::START && cy < (int)rows.size() && rows[cy].empty())
-                    continue;
             }
 
-            while (target == WordMotionTarget::END && cy < (int)rows.size() && rows[cy].empty()) {
-                ++cy;
-            }
-
-            // --- 3. Skip whitespace to get to next word ---
-            while (cy < (int)rows.size() && std::isspace((unsigned char)rows[cy][cx])) {
-                cx++;
-                if (cx >= (int)rows[cy].size()) {
-                    cy++;
-                    cx = 0;
-                    // Stop if it's an empty line
-                    if (target == WordMotionTarget::START && cy < (int)rows.size() && rows[cy].empty())
-                        continue;
+            // Skip empty lines and whitespace lines
+            while (true) {
+                if (cy >= (int)rows.size()) {
+                    --cy;
+                    return;
                 }
+                if (cy < (int)rows.size() && rows[cy].empty()) {
+                    // Mimic Vim behavior -- stop at first non-empty line
+                    if (target == WordMotionTarget::START) {
+                        break;
+                    }
+                    ++cy;
+                    continue;
+                }
+                else if (cy < (int)rows.size() && std::isspace((unsigned char)rows[cy][cx])) {
+                    ++cx;
+                    if (cx >= (int)rows[cy].size()) {
+                        ++cy;
+                        cx = 0;
+                    }
+                    continue;
+                }
+                break;
             }
+
             if (target == WordMotionTarget::END) {
                 bool currIsKeyword = isKeywordChar(rows[cy][cx]);
                 while (cx < (int)rows[cy].size() && isKeywordChar(rows[cy][cx]) == currIsKeyword) {
@@ -593,12 +610,51 @@ void Editor::wordMotion(int n, bool dir, WordMotionTarget target) {
         }
         else {
             // Backward
+            // If at beginning of file
+            if (cy == 0 && cx == 0)
+                return;
+
+            // --- 1. If we're in the middle of a word, skip to its start ---
+            if (!rows[cy].empty() && cx > 0 && !std::isspace((unsigned char)rows[cy][cx - 1])) {
+                bool currIsKeyword = isKeywordChar(rows[cy][cx - 1]);
+                while (cx > 0 && isKeywordChar(rows[cy][cx - 1]) == currIsKeyword) {
+                    cx--;
+                }
+                continue;
+            }
+
+            // --- 2. If we're at or past start of line, go to previous line ---
+            if (cx == 0) {
+                cy--;
+                cx = rows[cy].size();
+            }
+
+            // --- 3. Skip whitespace to get to previous word ---
+            while (cy >= 0 && std::isspace((unsigned char)rows[cy][cx - 1])) {
+                cx--;
+                if (cx == 0) {
+                    cy--;
+                    cx = rows[cy].size();
+                }
+            }
+
+            // -- 4. Move to beginning of word
+            bool currIsKeyword = isKeywordChar(rows[cy][cx - 1]);
+            while (cx > 0 && isKeywordChar(rows[cy][cx - 1]) == currIsKeyword) {
+                cx--;
+            }
+
         }
     }
 }
 
 
 void Editor::processNormalKey(int c) {
+    if (operators.contains(c)) {
+        ops.push_back(c);
+        return;
+    }
+    ops.clear();
     switch(c) {
         case ':': {
             std::string command = prompt(":{}");
@@ -707,6 +763,8 @@ void Editor::processNormalKey(int c) {
             break;
         }
     }
+    assert(cx >= 0);
+    assert(cy >= 0);
 }
 
 void Editor::processInsertKey(int c) {

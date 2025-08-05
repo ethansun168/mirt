@@ -18,8 +18,9 @@ foo
 
 bar
 
+this  is a  sentence  with   multipl      spaces
 
-
+  
 
 
 oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo

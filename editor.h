@@ -27,6 +27,7 @@ private:
     Mode mode;
     int lineNumberWidth;
     std::unordered_map<std::string, bool> options;
+    std::vector<char> ops;
 
     enum EditorKey {
         BACKSPACE = 127,
