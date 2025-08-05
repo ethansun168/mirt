@@ -8,10 +8,22 @@
 #include "constants.h"
 #include "utils.h"
 
-Editor::Editor() : cx{0}, cy{0}, rx{0}, rowOffset{0}, colOffset{0}, filename{""}, statusMsgTime{0}, dirty{false}, mode{Mode::NORMAL} {
+Editor::Editor() :
+    cx{0},
+    cy{0},
+    rx{0},
+    rowOffset{0},
+    colOffset{0},
+    filename{""},
+    statusMsgTime{0},
+    dirty{false},
+    mode{Mode::NORMAL},
+    lineNumberWidth{0}
+{
     if (getWindowSize(&screenrows, &screencols) == -1)
         die("getWindowSize");
     screenrows -= 2;
+    options["number"] = false;
 }
 
 int Editor::readKey() {
@@ -173,10 +185,14 @@ void Editor::scroll() {
 }
 
 void Editor::drawRows(std::string& str) {
+    lineNumberWidth = options["number"] ? std::to_string(std::max(1, (int)rows.size())).size() + 1 : 0;
+
     for (int y = 0; y < screenrows; y++) {
         int filerow = y + rowOffset;
 
         if (filerow >= rows.size()) {
+            str += std::string(lineNumberWidth, ' '); 
+
             if (rows.size() == 0 && y == screenrows / 3) {
                 std::string welcome = "Welcome to Gamestrim Editor -- version 0.0.1";
                 int padding = (screencols - welcome.length()) / 2;
@@ -194,9 +210,19 @@ void Editor::drawRows(std::string& str) {
             }
         }
         else {
+            if (options["number"]) {
+                std::string lineNumber = std::to_string(filerow + 1);
+                // Dim line numbers
+                str += "\x1b[2m";
+
+                str += std::string(lineNumberWidth - lineNumber.size() - 1, ' ') + lineNumber + " ";
+                // Reset to normal
+                str += "\x1b[22m";
+            }
+
             int len = renders[filerow].length() - colOffset;
             len = std::max(0, len);
-            len = std::min(len, screencols);
+            len = std::min(len, screencols - lineNumberWidth);
             if (len != 0) {
                 str += renders[filerow].substr(colOffset, len);
             }
@@ -246,7 +272,9 @@ void Editor::refreshScreen() {
     drawMessageBar(str);
 
     // Draw cursor
-    str += "\x1b[" + std::to_string(cy - rowOffset + 1) + ";" + std::to_string(rx - colOffset + 1) + "H";
+    str += "\x1b[" + std::to_string(cy - rowOffset + 1) + ";" 
+        + std::to_string(rx - colOffset + 1 + lineNumberWidth) + "H";
+
 
     str += "\x1b[?25h";
     write(STDOUT_FILENO, str.c_str(), str.length());
@@ -404,7 +432,6 @@ void Editor::processNormalKey(int c) {
                 setStatusMessage("Aborted");
                 return;
             }
-            setStatusMessage("You entered: " + command);
             if (command == "w") {
                 save();
             }
@@ -429,6 +456,17 @@ void Editor::processNormalKey(int c) {
                     write(STDOUT_FILENO, "\x1b[H", 3);
                     exit(0);
                 }
+            }
+            else if (command.starts_with("set ")) {
+                std::string subCommand = command.substr(4);
+                if (subCommand == "number") {
+                    options["number"] = true;
+                }
+                else if (subCommand == "nonumber") {
+                    options["number"] = false;
+                }
+                // setStatusMessage("Set subcommand: " + subCommand);
+                
             }
             break;
         }

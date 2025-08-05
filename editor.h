@@ -1,5 +1,6 @@
 #pragma once
 #include <vector>
+#include <unordered_map>
 #include <string>
 #include <termios.h>
 
@@ -23,6 +24,8 @@ private:
     time_t statusMsgTime;
     bool dirty;
     Mode mode;
+    int lineNumberWidth;
+    std::unordered_map<std::string, bool> options;
 
     enum EditorKey {
         BACKSPACE = 127,
