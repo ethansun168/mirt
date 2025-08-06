@@ -38,6 +38,19 @@ int Editor::readKey() {
     }
 
     if (c == '\x1b') {
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 20000; // 20 ms
+
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+
+        if (select(STDIN_FILENO + 1, &readfds, NULL, NULL, &tv) <= 0) {
+            // No more input immediately → plain ESC
+            return '\x1b';
+        }
+
         char seq[3];
         if (read(STDIN_FILENO, &seq[0], 1) != 1)
             return '\x1b';
@@ -404,7 +417,7 @@ void Editor::moveCursor(int key, Mode mode) {
     // Normal mode end of line
     if (mode == Mode::NORMAL && cx == rows[cy].length() - 1) {
         cx++;
-        refreshScreen();
+        scroll();
         cx--;
         refreshScreen();
     }
@@ -730,7 +743,7 @@ void Editor::processNormalKey(int c) {
                 lastCx = cx;
                 if (cx == rows[cy].length() - 1) {
                     cx++;
-                    refreshScreen();
+                    scroll();
                     cx--;
                     refreshScreen();
                 }
