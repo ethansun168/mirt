@@ -83,6 +83,8 @@ private:
     // Move cursor in direction `dir` by `n` words
     void wordMotion(int n, bool dir, WordMotionTarget target);
 
+    std::pair<int, int> findBracket(bool dir);
+
 public:
     Editor();
     void openFile(const std::string& filename);

@@ -1,10 +1,14 @@
 #include <stdio.h>
 #include <cassert>
+#include <stack>
 #include <format>
 #include <fcntl.h>
 #include <string.h>
+#include <tuple>
 #include <unistd.h>
 #include <fstream>
+#include <algorithm>
+#include <vector>
 #include "editor.h"
 #include "constants.h"
 #include "utils.h"
@@ -775,9 +779,83 @@ void Editor::processNormalKey(int c) {
             lastCx = cx;
             break;
         }
+        case '%': {
+            if (rows[cy].empty()) {
+                break;
+            }
+            if (std::find(openBrackets.begin(), openBrackets.end(), rows[cy].at(cx)) != openBrackets.end()) {
+                // Look forward
+                std::tie(cy, cx) = findBracket(true);
+            }
+            else if (std::find(closedBrackets.begin(), closedBrackets.end(), rows[cy].at(cx)) != closedBrackets.end()) {
+                // Look backwards
+                std::tie(cy, cx) = findBracket(false);
+            }
+            lastCx = cx;
+            break;
+        }
     }
     assert(cx >= 0);
     assert(cy >= 0);
+}
+
+std::pair<int, int> Editor::findBracket(bool dir) {
+    // Forward is true, backwards is false
+    int curCx = cx;
+    int curCy = cy;
+    std::stack<char> brackets;
+
+    char orig = rows[curCy][curCx];
+    brackets.push(rows[curCy][curCx]);
+    while (!brackets.empty()) {
+        if (dir) {
+            if (curCy >= rows.size()) {
+                // Not found
+                return {cy, cx};
+            }
+            // Scan forward
+            ++curCx;
+            if (curCx >= rows[curCy].size()) {
+                ++curCy;
+                curCx = 0;
+                while (rows[curCy].empty()) {
+                    ++curCy;
+                    if (curCy >= rows.size()) {
+                        // Not found
+                        return {cy, cx};
+                    }
+                }
+            }
+
+        }
+        else {
+            // Scan backward
+            if (curCy < 0) {
+                // Not found
+                return {cy, cx};
+            }
+            --curCx;
+            if (curCx < 0) {
+                --curCy;
+                curCx = rows[curCy].size() - 1;
+                while (rows[curCy].empty()) {
+                    --curCy;
+                    if (curCy < 0) {
+                        return {cy, cx};
+                    }
+                    curCx = rows[curCy].size() - 1;
+                }
+            }
+        }
+        char ch = rows[curCy][curCx];
+        if (orig == ch) {
+            brackets.push(rows[curCy][curCx]);
+        }
+        else if (bracketMatches.contains(ch) && brackets.top() == bracketMatches.at(ch)) {
+            brackets.pop(); 
+        }
+    }
+    return {curCy, curCx};
 }
 
 void Editor::processInsertKey(int c) {
@@ -828,7 +906,7 @@ void Editor::processKeyPress() {
             }
             int times = screenrows;
             while (times--)
-            moveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN, mode);
+                moveCursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN, mode);
             return;
         }
 
@@ -885,6 +963,5 @@ void Editor::config() {
             setCommandHandler(subCommand);
         }
     }
-
     file.close();
 }
