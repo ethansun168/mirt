@@ -1,10 +1,11 @@
 #pragma once
 #include <string>
+#include <expected>
 void die(const char *s);
 void disableRawMode();
 void enableRawMode();
-int getCursorPosition(int *rows, int *cols);
-int getWindowSize(int *rows, int *cols);
+std::expected<std::pair<int, int>, std::string> getCursorPosition();
+std::expected<std::pair<int, int>, std::string> getWindowSize();
 
 void thinCursor();
 void thickCursor();

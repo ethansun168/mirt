@@ -26,8 +26,13 @@ Editor::Editor() :
     lineNumberWidth{0},
     lastCx{0}
 {
-    if (getWindowSize(&screenrows, &screencols) == -1)
+    auto windowSize = getWindowSize();
+    if (windowSize.has_value()) {
+        std::tie(screenrows, screencols) = windowSize.value();
+    }
+    else {
         die("getWindowSize");
+    }
     screenrows -= 2;
     options["number"] = false;
     options["relativenumber"] = false;
@@ -434,7 +439,13 @@ std::string Editor::prompt(const std::string& prompt) {
     std::string input = "";
     int rows, cols;
     size_t cursorPos = 0;
-    getWindowSize(&rows, &cols);
+    auto windowSize = getWindowSize();
+    if (windowSize.has_value()) {
+        std::tie(rows, cols) = windowSize.value();
+    }
+    else {
+        die("windowSize");
+    }
 
     size_t placeholderPos = prompt.find("{}");
     std::string before = prompt.substr(0, placeholderPos);

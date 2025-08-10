@@ -1,9 +1,11 @@
+#include <expected>
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <string>
+#include <utility>
 #include "constants.h"
 #include "utils.h"
 
@@ -51,12 +53,12 @@ void enableRawMode() {
     thickCursor();
 }
 
-int getCursorPosition(int *rows, int *cols) {
+std::expected<std::pair<int, int>, std::string> getCursorPosition() {
     char buf[32];
     unsigned int i = 0;
 
     if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4)
-        return -1;
+        return std::unexpected("Get cursor position failed");
 
     while (i < sizeof(buf) - 1) {
         if (read(STDIN_FILENO, &buf[i], 1) != 1)
@@ -66,22 +68,26 @@ int getCursorPosition(int *rows, int *cols) {
         i++;
     }
     buf[i] = '\0';
+    int rows, cols;
     if (buf[0] != '\x1b' || buf[1] != '[')
-        return -1;
-    if (sscanf(&buf[2], "%d;%d", rows, cols) != 2)
-        return -1;
-    return 0;
+        return std::unexpected("Get cursor position failed");
+    if (sscanf(&buf[2], "%d;%d", &rows, &cols) != 2)
+        return std::unexpected("Get cursor position failed");
+    return std::make_pair(rows, cols);
 }
 
-int getWindowSize(int *rows, int *cols) {
+std::expected<std::pair<int, int>, std::string> getWindowSize() {
     struct winsize ws;
+    int rows, cols;
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
-        if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;
-        return getCursorPosition(rows, cols);
+        if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return std::unexpected("Write failed");
+        auto cursorPos = getCursorPosition();
+        if (cursorPos.has_value()) {
+            return cursorPos.value();
+        }
+        return std::unexpected(cursorPos.error());
     } else {
-        *cols = ws.ws_col;
-        *rows = ws.ws_row;
-        return 0;
+        return std::make_pair(ws.ws_row, ws.ws_col);
     }
 }
 
